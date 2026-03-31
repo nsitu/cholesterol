@@ -1,0 +1,709 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Lipid Panel Visualizer</title>
+  <script src="vendor/d3.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      background: #f0f4f8;
+      color: #1a202c;
+      margin: 0;
+      padding: 1rem;
+    }
+
+    h1 {
+      text-align: center;
+      font-size: 1.6rem;
+      margin-bottom: 0.25rem;
+      color: #2d3748;
+    }
+
+    .subtitle {
+      text-align: center;
+      font-size: 0.85rem;
+      color: #718096;
+      margin-bottom: 1.5rem;
+    }
+
+    /* Fasting row */
+    .fasting-row {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      justify-content: center;
+      margin-bottom: 1.5rem;
+      background: #fff;
+      border-radius: 10px;
+      padding: 0.75rem 1.5rem;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+      max-width: 480px;
+      margin-left: auto;
+      margin-right: auto;
+    }
+
+    .fasting-row label { font-weight: 600; font-size: 0.95rem; }
+
+    .fasting-row select {
+      border: 1px solid #cbd5e0;
+      border-radius: 6px;
+      padding: 0.35rem 0.7rem;
+      font-size: 0.9rem;
+      background: #f7fafc;
+      cursor: pointer;
+    }
+
+    /* Panel grid */
+    .panel-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+      gap: 1rem;
+      max-width: 1100px;
+      margin: 0 auto;
+    }
+
+    /* Panel card */
+    .panel-card {
+      background: #fff;
+      border-radius: 12px;
+      padding: 1rem 1.25rem 1.25rem;
+      box-shadow: 0 1px 6px rgba(0,0,0,0.09);
+    }
+
+    .card-header {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      margin-bottom: 0.6rem;
+    }
+
+    .card-title {
+      font-weight: 700;
+      font-size: 0.95rem;
+      color: #2d3748;
+    }
+
+    .card-unit {
+      font-size: 0.78rem;
+      color: #718096;
+    }
+
+    /* Input row */
+    .input-row {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      margin-bottom: 0.75rem;
+    }
+
+    .input-row input[type=number] {
+      width: 110px;
+      padding: 0.4rem 0.6rem;
+      border: 1.5px solid #cbd5e0;
+      border-radius: 7px;
+      font-size: 1rem;
+      background: #f7fafc;
+      transition: border-color 0.2s;
+    }
+
+    .input-row input[type=number]:focus {
+      outline: none;
+      border-color: #4299e1;
+      background: #ebf8ff;
+    }
+
+    .input-row input[disabled] {
+      background: #edf2f7;
+      color: #718096;
+      cursor: not-allowed;
+    }
+
+    .value-label {
+      font-size: 1.05rem;
+      font-weight: 700;
+      min-width: 80px;
+      color: #2d3748;
+    }
+
+    .status-badge {
+      font-size: 0.75rem;
+      font-weight: 600;
+      padding: 0.2rem 0.55rem;
+      border-radius: 20px;
+      white-space: nowrap;
+    }
+
+    /* Bar chart area */
+    .bar-container {
+      margin-top: 0.25rem;
+    }
+
+    .bar-container svg {
+      overflow: visible;
+    }
+
+    /* Legend */
+    .legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem 1rem;
+      margin-top: 0.5rem;
+      font-size: 0.72rem;
+      color: #4a5568;
+    }
+
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 0.3rem;
+    }
+
+    .legend-swatch {
+      width: 12px;
+      height: 12px;
+      border-radius: 3px;
+      flex-shrink: 0;
+    }
+
+    /* Auto-calc note */
+    .auto-note {
+      font-size: 0.72rem;
+      color: #718096;
+      font-style: italic;
+      margin-top: 0.2rem;
+    }
+
+    /* Guideline note at bottom */
+    .guideline-note {
+      max-width: 1100px;
+      margin: 1.5rem auto 0;
+      background: #ebf8ff;
+      border-left: 4px solid #4299e1;
+      border-radius: 6px;
+      padding: 0.75rem 1rem;
+      font-size: 0.8rem;
+      color: #2b6cb0;
+      line-height: 1.5;
+    }
+  </style>
+</head>
+<body>
+
+<h1>💊 Lipid Panel Visualizer</h1>
+<p class="subtitle">Enter your lab values (mmol/L) to see reference ranges and cardiovascular risk indicators.</p>
+
+<!-- Fasting selector -->
+<div class="fasting-row">
+  <label for="fasting-select">Fasting status:</label>
+  <select id="fasting-select">
+    <option value="fasting">Fasting (&ge;8 hours)</option>
+    <option value="nonfasting">Non-fasting (&lt;8 hours)</option>
+  </select>
+  <span id="fasting-duration-label" style="font-size:0.82rem;color:#718096;"></span>
+</div>
+
+<!-- Cards injected by JS -->
+<div class="panel-grid" id="panel-grid"></div>
+
+<div class="guideline-note">
+  <strong>Reference:</strong> Based on 2021 CCS Guidelines (Can J Cardiol. 2021;37(8):1129–1150) and standard clinical laboratory reference ranges.
+  Total cholesterol and HDL-C are used for risk assessment and to calculate Non-HDL-C.
+  LDL-C is calculated using the NIH/Friedewald equation where applicable.
+  Non-HDL-C is not affected by fasting status.
+  Cholesterol/HDL-C ratio &gt;6.0 is recognised as an indicator of high CVD risk (not a CCS treatment target).
+</div>
+
+<script>
+/* ===== Colour palette ===== */
+const COLORS = {
+  optimal:    "#38a169",   // green
+  near:       "#68d391",   // light green
+  borderline: "#f6ad55",   // orange
+  high:       "#f56565",   // red
+  veryHigh:   "#c53030",   // dark red
+  low:        "#f56565",   // red (for HDL low)
+  acceptable: "#38a169",
+  protective: "#276749",   // dark green
+};
+
+/* ===== Panel definitions =====
+   Each segment: { max, color, label }
+   The bar spans from 0 to domainMax.
+   Segments are painted left-to-right up to their max.
+*/
+function buildPanels(isFasting) {
+  return [
+    {
+      id: "triglyceride",
+      title: "Triglycerides",
+      unit: "mmol/L",
+      domainMax: 10,
+      markerMax: 9.5,
+      step: 0.01,
+      segments: isFasting
+        ? [
+            { max: 1.7,  color: COLORS.optimal,    label: "Optimal (<1.70)" },
+            { max: 2.00, color: COLORS.near,        label: "Acceptable (1.70–2.00)" },
+            { max: 5.64, color: COLORS.borderline,  label: "Borderline high (2.00–5.64)" },
+            { max: 10,   color: COLORS.high,        label: "High (≥5.65)" },
+          ]
+        : [
+            { max: 1.70, color: COLORS.optimal,    label: "Optimal (<1.70)" },
+            { max: 5.64, color: COLORS.borderline,  label: "Borderline high (1.70–5.64)" },
+            { max: 10,   color: COLORS.high,        label: "High (≥5.65)" },
+          ],
+      thresholds: isFasting
+        ? [
+            { value: 2.00,  label: "Fasting limit" },
+            { value: 5.65,  label: "High" },
+          ]
+        : [
+            { value: 1.70,  label: "Non-fasting limit" },
+            { value: 5.65,  label: "High" },
+          ],
+      getRisk(v, _f) {
+        if (v === null) return null;
+        const limit = isFasting ? 2.00 : 1.70;
+        if (v < limit)   return { label: "Optimal",          color: COLORS.optimal };
+        if (v < 5.65)    return { label: "Borderline High",  color: COLORS.borderline };
+        return             { label: "High",               color: COLORS.high };
+      },
+      note: isFasting
+        ? "Fasting reference: <2.00 mmol/L"
+        : "Non-fasting reference: <1.70 mmol/L",
+    },
+
+    {
+      id: "total-chol",
+      title: "Total Cholesterol",
+      unit: "mmol/L",
+      domainMax: 10,
+      markerMax: 9.5,
+      step: 0.01,
+      segments: [
+        { max: 5.17, color: COLORS.optimal,    label: "Desirable (<5.17)" },
+        { max: 6.19, color: COLORS.borderline, label: "Borderline high (5.17–6.19)" },
+        { max: 10,   color: COLORS.high,       label: "High (≥6.20)" },
+      ],
+      thresholds: [
+        { value: 5.17, label: "Desirable" },
+        { value: 6.20, label: "High" },
+      ],
+      getRisk(v) {
+        if (v === null) return null;
+        if (v < 5.17) return { label: "Desirable",        color: COLORS.optimal };
+        if (v < 6.20) return { label: "Borderline High",  color: COLORS.borderline };
+        return          { label: "High",               color: COLORS.high };
+      },
+      note: "Used with HDL-C for risk assessment and Non-HDL-C calculation.",
+    },
+
+    {
+      id: "hdl",
+      title: "HDL Cholesterol",
+      unit: "mmol/L",
+      domainMax: 4,
+      markerMax: 3.8,
+      step: 0.01,
+      // Higher is better for HDL
+      segments: [
+        { max: 1.00, color: COLORS.high,       label: "Low – metabolic syndrome risk (<1.00)" },
+        { max: 1.54, color: COLORS.borderline,  label: "Acceptable (1.00–1.54)" },
+        { max: 2.00, color: COLORS.optimal,     label: "Optimal (1.55–2.00)" },
+        { max: 4,    color: COLORS.protective,  label: "Protective (>2.00)" },
+      ],
+      thresholds: [
+        { value: 1.00, label: "Risk" },
+        { value: 1.55, label: "Optimal" },
+      ],
+      getRisk(v) {
+        if (v === null) return null;
+        if (v < 1.00) return { label: "Low – Risk",   color: COLORS.high };
+        if (v < 1.55) return { label: "Acceptable",   color: COLORS.borderline };
+        if (v < 2.00) return { label: "Optimal",      color: COLORS.optimal };
+        return          { label: "Protective",     color: COLORS.protective };
+      },
+      note: "HDL-C <1.00 mmol/L indicates risk for metabolic syndrome.",
+    },
+
+    {
+      id: "non-hdl",
+      title: "Non-HDL Cholesterol",
+      unit: "mmol/L",
+      domainMax: 10,
+      markerMax: 9.5,
+      step: 0.01,
+      autoCalc: true, // computed from Total - HDL
+      segments: [
+        { max: 3.37, color: COLORS.optimal,    label: "Optimal (<3.37)" },
+        { max: 4.19, color: COLORS.near,       label: "Near optimal (3.37–4.19)" },
+        { max: 5.79, color: COLORS.borderline, label: "Elevated (4.20–5.79)" },
+        { max: 10,   color: COLORS.high,       label: "High (≥5.80)" },
+      ],
+      thresholds: [
+        { value: 4.20, label: "Therapy threshold (intermediate risk)" },
+        { value: 5.80, label: "Therapy threshold (low risk)" },
+      ],
+      getRisk(v) {
+        if (v === null) return null;
+        if (v < 3.37) return { label: "Optimal",         color: COLORS.optimal };
+        if (v < 4.20) return { label: "Near Optimal",    color: COLORS.near };
+        if (v < 5.80) return { label: "Elevated",        color: COLORS.borderline };
+        return          { label: "High",             color: COLORS.high };
+      },
+      note: "Not affected by fasting status. Auto-calculated from Total Cholesterol − HDL-C.",
+    },
+
+    {
+      id: "ldl",
+      title: "LDL Cholesterol",
+      unit: "mmol/L",
+      domainMax: 10,
+      markerMax: 9.5,
+      step: 0.01,
+      segments: [
+        { max: 2.59, color: COLORS.optimal,    label: "Optimal (<2.59)" },
+        { max: 3.49, color: COLORS.near,       label: "Near optimal (2.59–3.49)" },
+        { max: 4.99, color: COLORS.borderline, label: "Borderline high (3.50–4.99)" },
+        { max: 10,   color: COLORS.high,       label: "High (≥5.00)" },
+      ],
+      thresholds: [
+        { value: 3.50, label: "Therapy threshold (intermediate risk)" },
+        { value: 5.00, label: "Therapy threshold (low risk)" },
+      ],
+      getRisk(v) {
+        if (v === null) return null;
+        if (v < 2.59) return { label: "Optimal",          color: COLORS.optimal };
+        if (v < 3.50) return { label: "Near Optimal",     color: COLORS.near };
+        if (v < 5.00) return { label: "Borderline High",  color: COLORS.borderline };
+        return          { label: "High",              color: COLORS.high };
+      },
+      note: "LDL-C calculated using NIH equation. Therapy thresholds per 2021 CCS Guidelines.",
+    },
+
+    {
+      id: "chol-hdl-ratio",
+      title: "Cholesterol / HDL Ratio",
+      unit: "ratio",
+      domainMax: 12,
+      markerMax: 11.5,
+      step: 0.01,
+      autoCalc: true, // computed from Total Cholesterol ÷ HDL-C
+      segments: [
+        { max: 3.99, color: COLORS.optimal,    label: "Acceptable (<4.0)" },
+        { max: 5.99, color: COLORS.borderline, label: "Borderline (4.0–5.99)" },
+        { max: 12,   color: COLORS.high,       label: "High CVD risk (≥6.0)" },
+      ],
+      thresholds: [
+        { value: 4.0, label: "Borderline" },
+        { value: 6.0, label: "High CVD risk" },
+      ],
+      getRisk(v) {
+        if (v === null) return null;
+        if (v < 4.0)  return { label: "Acceptable",    color: COLORS.optimal };
+        if (v < 6.0)  return { label: "Borderline",    color: COLORS.borderline };
+        return          { label: "High CVD Risk",  color: COLORS.high };
+      },
+      note: "Ratio >6.0 recognised as high CVD risk indicator (not a 2021 CCS treatment target).",
+    },
+  ];
+}
+
+/* ===== State ===== */
+let isFasting = true;
+const values = {
+  "triglyceride": null,
+  "total-chol":   null,
+  "hdl":          null,
+  "non-hdl":      null,
+  "ldl":          null,
+  "chol-hdl-ratio": null,
+};
+
+/* ===== Build DOM ===== */
+function buildCards() {
+  const grid = document.getElementById("panel-grid");
+  grid.innerHTML = "";
+  const panels = buildPanels(isFasting);
+
+  panels.forEach(panel => {
+    const card = document.createElement("div");
+    card.className = "panel-card";
+    card.id = `card-${panel.id}`;
+
+    card.innerHTML = `
+      <div class="card-header">
+        <span class="card-title">${panel.title}</span>
+        <span class="card-unit">${panel.unit}</span>
+      </div>
+      <div class="input-row">
+        <input
+          type="number"
+          id="input-${panel.id}"
+          min="0"
+          max="${panel.markerMax}"
+          step="${panel.step}"
+          placeholder="Enter value"
+          ${panel.autoCalc ? `disabled title="${panel.id === 'non-hdl' ? 'Auto-calculated from Total Cholesterol − HDL-C' : 'Auto-calculated from Total Cholesterol ÷ HDL-C'}"` : ''}
+          value="${values[panel.id] !== null ? values[panel.id] : ''}"
+        />
+        <span class="value-label" id="val-${panel.id}">—</span>
+        <span class="status-badge" id="badge-${panel.id}"></span>
+      </div>
+      ${panel.autoCalc ? `<p class="auto-note">Auto-calculated: ${panel.id === 'non-hdl' ? 'Total Cholesterol − HDL-C' : 'Total Cholesterol ÷ HDL-C'}</p>` : ''}
+      <div class="bar-container" id="bar-${panel.id}"></div>
+      <div class="legend" id="legend-${panel.id}"></div>
+      <p class="auto-note" style="margin-top:0.5rem;">${panel.note}</p>
+    `;
+
+    grid.appendChild(card);
+
+    // Draw initial bar
+    drawBar(panel);
+    buildLegend(panel);
+
+    if (!panel.autoCalc) {
+      const input = document.getElementById(`input-${panel.id}`);
+      input.addEventListener("input", () => {
+        const raw = input.value.trim();
+        values[panel.id] = raw === "" ? null : parseFloat(raw);
+        updateAutoCalc();
+        renderPanel(panel.id);
+      });
+    }
+  });
+
+  // Initial render for all
+  panels.forEach(p => renderPanel(p.id));
+}
+
+/* ===== Auto-calculate Non-HDL and Chol/HDL ratio ===== */
+function updateAutoCalc() {
+  const totalChol = values["total-chol"];
+  const hdl       = values["hdl"];
+
+  if (totalChol !== null && hdl !== null) {
+    const nonHdl = parseFloat((totalChol - hdl).toFixed(2));
+    values["non-hdl"] = nonHdl;
+    document.getElementById("input-non-hdl").value = nonHdl;
+  } else {
+    values["non-hdl"] = null;
+    document.getElementById("input-non-hdl").value = "";
+  }
+
+  // Auto-calculate Chol/HDL ratio
+  if (totalChol !== null && hdl !== null && hdl > 0) {
+    const ratio = parseFloat((totalChol / hdl).toFixed(2));
+    values["chol-hdl-ratio"] = ratio;
+    document.getElementById("input-chol-hdl-ratio").value = ratio;
+  } else {
+    values["chol-hdl-ratio"] = null;
+    document.getElementById("input-chol-hdl-ratio").value = "";
+  }
+
+  // Refresh derived panels
+  renderPanel("non-hdl");
+  renderPanel("chol-hdl-ratio");
+}
+
+/* ===== Render a single panel ===== */
+function renderPanel(id) {
+  const panels = buildPanels(isFasting);
+  const panel  = panels.find(p => p.id === id);
+  if (!panel) return;
+
+  const v     = values[id];
+  const risk  = panel.getRisk(v);
+  const valEl = document.getElementById(`val-${id}`);
+  const badgeEl = document.getElementById(`badge-${id}`);
+
+  if (v === null) {
+    valEl.textContent = "—";
+    badgeEl.textContent = "";
+    badgeEl.style.background = "transparent";
+    badgeEl.style.color = "inherit";
+  } else {
+    valEl.textContent = v.toFixed(2);
+    if (risk) {
+      badgeEl.textContent = risk.label;
+      badgeEl.style.background = risk.color + "22";
+      badgeEl.style.color = risk.color;
+      badgeEl.style.border = `1px solid ${risk.color}55`;
+    }
+  }
+
+  updateMarker(panel, v);
+}
+
+/* ===== D3 bar drawing ===== */
+const BAR_HEIGHT = 22;
+const MARGIN = { top: 24, right: 16, bottom: 28, left: 4 };
+
+function drawBar(panel) {
+  const container = document.getElementById(`bar-${panel.id}`);
+  container.innerHTML = "";
+
+  const W = container.clientWidth || 300;
+  const width  = W - MARGIN.left - MARGIN.right;
+  const height = BAR_HEIGHT;
+
+  const svg = d3.select(container)
+    .append("svg")
+    .attr("width", W)
+    .attr("height", height + MARGIN.top + MARGIN.bottom)
+    .attr("id", `svg-${panel.id}`);
+
+  const g = svg.append("g")
+    .attr("transform", `translate(${MARGIN.left},${MARGIN.top})`);
+
+  const x = d3.scaleLinear()
+    .domain([0, panel.domainMax])
+    .range([0, width]);
+
+  // Draw segments
+  let prev = 0;
+  panel.segments.forEach(seg => {
+    g.append("rect")
+      .attr("x", x(prev))
+      .attr("y", 0)
+      .attr("width", x(seg.max) - x(prev))
+      .attr("height", height)
+      .attr("fill", seg.color)
+      .attr("opacity", 0.25)
+      .attr("rx", 0);
+    prev = seg.max;
+  });
+
+  // Segment border lines
+  prev = 0;
+  panel.segments.forEach((seg, i) => {
+    if (i < panel.segments.length - 1) {
+      g.append("line")
+        .attr("x1", x(seg.max))
+        .attr("x2", x(seg.max))
+        .attr("y1", 0)
+        .attr("y2", height)
+        .attr("stroke", "#718096")
+        .attr("stroke-width", 1)
+        .attr("stroke-dasharray", "3,2");
+    }
+    prev = seg.max;
+  });
+
+  // Threshold labels
+  panel.thresholds.forEach(t => {
+    const xPos = x(t.value);
+    g.append("text")
+      .attr("x", xPos)
+      .attr("y", -8)
+      .attr("text-anchor", "middle")
+      .attr("font-size", "9px")
+      .attr("fill", "#4a5568")
+      .text(t.value);
+  });
+
+  // X-axis (ticks)
+  const axis = d3.axisBottom(x)
+    .ticks(6)
+    .tickSize(4);
+
+  g.append("g")
+    .attr("transform", `translate(0,${height})`)
+    .call(axis)
+    .select(".domain").remove();
+
+  g.selectAll(".tick text")
+    .attr("font-size", "9px")
+    .attr("fill", "#718096");
+
+  // Marker group (updated by updateMarker)
+  g.append("g")
+    .attr("id", `marker-${panel.id}`)
+    .attr("class", "marker-group");
+}
+
+function updateMarker(panel, value) {
+  const container = document.getElementById(`bar-${panel.id}`);
+  if (!container) return;
+  const W = container.clientWidth || 300;
+  const width = W - MARGIN.left - MARGIN.right;
+
+  const x = d3.scaleLinear()
+    .domain([0, panel.domainMax])
+    .range([0, width]);
+
+  const markerG = d3.select(`#marker-${panel.id}`);
+  markerG.selectAll("*").remove();
+
+  if (value === null) return;
+
+  // Clamp marker to visible area
+  const clampedValue = Math.max(0, Math.min(value, panel.markerMax));
+  const xPos = x(clampedValue);
+
+  // Determine colour from segments
+  let markerColor = COLORS.optimal;
+  let prev = 0;
+  for (const seg of panel.segments) {
+    if (value <= seg.max) { markerColor = seg.color; break; }
+    prev = seg.max;
+  }
+  // If beyond last segment max
+  if (value > panel.segments[panel.segments.length - 1].max) {
+    markerColor = panel.segments[panel.segments.length - 1].color;
+  }
+
+  // Vertical line
+  markerG.append("line")
+    .attr("x1", xPos).attr("x2", xPos)
+    .attr("y1", -6).attr("y2", BAR_HEIGHT + 6)
+    .attr("stroke", markerColor)
+    .attr("stroke-width", 2.5);
+
+  // Triangle pointer at top
+  markerG.append("polygon")
+    .attr("points", `${xPos},${-6} ${xPos - 5},${-14} ${xPos + 5},${-14}`)
+    .attr("fill", markerColor);
+
+  // Value label above
+  markerG.append("text")
+    .attr("x", xPos)
+    .attr("y", -18)
+    .attr("text-anchor", "middle")
+    .attr("font-size", "10px")
+    .attr("font-weight", "bold")
+    .attr("fill", markerColor)
+    .text(value.toFixed(2));
+}
+
+/* ===== Legend ===== */
+function buildLegend(panel) {
+  const el = document.getElementById(`legend-${panel.id}`);
+  el.innerHTML = "";
+  panel.segments.forEach(seg => {
+    const item = document.createElement("div");
+    item.className = "legend-item";
+    item.innerHTML = `
+      <div class="legend-swatch" style="background:${seg.color};"></div>
+      <span>${seg.label}</span>
+    `;
+    el.appendChild(item);
+  });
+}
+
+/* ===== Fasting selector ===== */
+document.getElementById("fasting-select").addEventListener("change", function () {
+  isFasting = this.value === "fasting";
+  // Rebuild all cards (segments change for triglycerides)
+  buildCards();
+});
+
+/* ===== Init ===== */
+buildCards();
+</script>
+</body>
+</html>
